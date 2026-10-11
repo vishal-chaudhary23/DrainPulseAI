@@ -527,17 +527,20 @@ export default function DrainMap({
         const isSelected = selectedAsset?.id === asset.id;
         const risk = asset.risk ?? 60;
         const color = risk >= 75 ? "#dc2626" : risk >= 58 ? "#ea580c" : risk >= 45 ? "#d97706" : "#16a34a";
-        const size = isSelected ? 32 : 24;
+        const size = isSelected ? 34 : risk >= 75 ? 27 : 22;
 
         const el = document.createElement("div");
         el.setAttribute("title", `${asset.name} · Risk ${Math.round(risk)}`);
+        el.setAttribute("role", "button");
+        el.setAttribute("tabindex", "0");
+        el.setAttribute("aria-label", `Select ${asset.name}, risk ${Math.round(risk)}`);
         el.style.cssText = `cursor:pointer;display:flex;align-items:center;justify-content:center;`;
         el.innerHTML = `
           <div style="
             position:relative;display:flex;align-items:center;justify-content:center;
             width:${size}px;height:${size}px;
             background:${color};border:${isSelected ? "3px" : "2px"} solid #fff;
-            border-radius:9999px;box-shadow:0 2px 8px rgba(0,0,0,0.3);
+            border-radius:9999px;box-shadow:${risk >= 75 ? "0 0 0 3px rgba(220,38,38,0.18)," : ""}0 2px 8px rgba(15,23,42,0.32);
             transition:transform 0.15s;
           ">
             <span style="color:#fff;font-size:9px;font-weight:700;font-family:monospace;font-feature-settings:'tnum';">
@@ -550,6 +553,12 @@ export default function DrainMap({
         el.onclick = () => {
           onSelectAsset(asset);
           map.flyTo({ center: [asset.lon, asset.lat], zoom: Math.max(map.getZoom(), 13), duration: 900 });
+        };
+        el.onkeydown = (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            el.click();
+          }
         };
 
         markersRef.current.push(
@@ -615,8 +624,8 @@ export default function DrainMap({
 
   return (
     <div
-      className="relative w-full overflow-hidden border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
-      style={{ height, borderRadius: "10px" }}
+      className="relative w-full overflow-hidden rounded-2xl border border-[var(--border)] bg-white shadow-[var(--card-shadow)] ring-1 ring-slate-900/5 dark:bg-slate-900 dark:ring-white/5"
+      style={{ height }}
     >
       {/* Map viewport */}
       <div ref={mapContainer} className="h-full w-full" />
@@ -654,14 +663,14 @@ export default function DrainMap({
       )}
 
       {/* ── Top bar: extent selector + search ── */}
-      <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2">
+      <div className="map-toolbar absolute left-3 top-3 z-20 flex flex-wrap items-center gap-2">
         {/* Extent selector */}
-        <div className="flex items-center rounded border border-slate-200 bg-white/97 dark:border-slate-700 dark:bg-slate-900/97 overflow-hidden shadow-sm">
+        <div className="flex items-center overflow-hidden rounded-lg border border-[var(--border)] bg-white/95 shadow-[var(--card-shadow)] dark:bg-slate-900/95">
           <button
             type="button"
             onClick={handleFlyIndia}
             title="View India national extent"
-            className={`px-2.5 py-1 text-xs font-medium transition ${
+            className={`px-3 py-2 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--primary)] ${
               currentExtent === "india"
                 ? "bg-slate-900 text-white dark:bg-sky-600"
                 : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -674,7 +683,7 @@ export default function DrainMap({
             type="button"
             onClick={handleFlyDelhi}
             title="View Delhi NCT basin"
-            className={`px-2.5 py-1 text-xs font-medium transition ${
+            className={`px-3 py-2 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--primary)] ${
               currentExtent === "delhi"
                 ? "bg-sky-600 text-white"
                 : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -686,18 +695,18 @@ export default function DrainMap({
 
         {/* Search */}
         <div className="relative">
-          <div className="flex items-center rounded border border-slate-200 bg-white/97 px-2 py-1 shadow-sm dark:border-slate-700 dark:bg-slate-900/97">
+          <div className="map-search flex items-center rounded-lg border border-[var(--border)] bg-white/95 px-2.5 py-2 shadow-[var(--card-shadow)] dark:bg-slate-900/95">
             <Search className="h-3 w-3 text-slate-400 flex-shrink-0" />
             <input
               type="text"
               placeholder="Search locality…"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-40 bg-transparent px-1.5 text-xs text-slate-800 placeholder-slate-400 outline-none dark:text-slate-100"
+              className="w-40 bg-transparent px-1.5 text-xs text-slate-800 placeholder-slate-400 outline-none focus-visible:ring-0 dark:text-slate-100"
             />
           </div>
           {searchResults.length > 0 && (
-            <div className="absolute top-full left-0 mt-1 max-h-48 w-64 overflow-y-auto rounded border border-slate-200 bg-white p-0.5 shadow-xl dark:border-slate-700 dark:bg-slate-800">
+            <div className="absolute left-0 top-full z-30 mt-1 max-h-48 w-64 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--elevated-shadow)]">
               {searchResults.map((item) => (
                 <button
                   key={item.id}
@@ -834,7 +843,7 @@ export default function DrainMap({
 
         {/* Layer management panel */}
         {showLayerPanel && (
-          <div className="w-56 rounded border border-slate-200 bg-white/97 p-3 shadow-lg dark:border-slate-700 dark:bg-slate-800/97">
+          <div className="map-layer-panel w-56 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[var(--elevated-shadow)]">
             <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2 dark:border-slate-700">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
                 Layer Controls
@@ -883,7 +892,7 @@ export default function DrainMap({
       </div>
 
       {/* ── Telemetry HUD (bottom-left) ── */}
-      <div className="absolute bottom-8 left-3 z-20 telemetry-hud" role="complementary" aria-label="Map telemetry">
+      <div className="map-telemetry absolute bottom-8 left-3 z-20 telemetry-hud" role="complementary" aria-label="Map telemetry">
         {/* Cursor position */}
         <div className="telemetry-row">
           <span className="telemetry-label">LAT</span>
@@ -939,7 +948,7 @@ export default function DrainMap({
 
       {/* ── Selected asset drawer (bottom, not obscuring HUD) ── */}
       {selectedAsset && (
-        <div className="absolute bottom-3 left-[230px] right-3 z-30 max-w-sm rounded border border-slate-200 bg-white/97 p-3.5 shadow-lg dark:border-slate-700 dark:bg-slate-900/97 sm:max-w-md">
+        <div className="map-selected-panel absolute bottom-3 left-3 right-3 z-30 max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3.5 shadow-[var(--elevated-shadow)] sm:left-[230px] sm:right-3">
           <div className="mb-2 flex items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
@@ -965,14 +974,14 @@ export default function DrainMap({
             <button
               type="button"
               onClick={() => onSelectAsset(null)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex-shrink-0"
+              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-[var(--primary)] dark:hover:bg-slate-800 dark:hover:text-slate-200"
               aria-label="Close asset panel"
             >
               ✕
             </button>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 border-y border-slate-100 py-2 text-center text-xs dark:border-slate-800">
+          <div className="grid grid-cols-4 divide-x divide-[var(--border)] border-y border-[var(--border)] py-2 text-center text-xs">
             {[
               { label: "Risk", value: selectedAsset.risk ?? 60, color: "text-red-600 dark:text-red-400" },
               { label: "Blockage", value: `${selectedAsset.blockage}%`, color: "text-slate-800 dark:text-slate-100" },
@@ -980,7 +989,7 @@ export default function DrainMap({
               { label: "Capacity", value: `${selectedAsset.capacity}%`, color: "text-slate-800 dark:text-slate-100" },
             ].map(({ label, value, color }) => (
               <div key={label}>
-                <div className="text-[9px] text-slate-400">{label}</div>
+                <div className="text-[9px] font-medium text-[var(--muted)]">{label}</div>
                 <div className={`text-sm font-bold font-mono-numbers ${color}`}>{value}</div>
               </div>
             ))}
@@ -994,8 +1003,8 @@ export default function DrainMap({
       )}
 
       {/* ── Legend (bottom-right, above attribution) ── */}
-      <div className="absolute bottom-8 right-3 z-20 hidden rounded border border-slate-200 bg-white/95 p-2 text-[10px] shadow-sm dark:border-slate-800 dark:bg-slate-900/95 sm:block">
-        <div className="mb-1 font-bold text-slate-600 dark:text-slate-300 text-[9px] uppercase tracking-wider">Risk Scale</div>
+      <div className="map-legend absolute bottom-8 right-3 z-20 hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 text-[10px] shadow-[var(--card-shadow)] sm:block">
+      <div className="mb-1 font-semibold text-[var(--muted)] text-[9px] uppercase tracking-wider">Asset risk</div>
         {[
           { color: "bg-red-600", label: "Critical ≥75" },
           { color: "bg-orange-500", label: "High 58–74" },

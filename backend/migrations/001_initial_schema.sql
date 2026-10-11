@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS incident_reports (
     severity TEXT NOT NULL,
     reporter_type TEXT NOT NULL,
     status TEXT DEFAULT 'new',
-    photo_url TEXT DEFAULT ''
+    photo_url TEXT DEFAULT '',
+    photo_file_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_tasks (

@@ -16,8 +16,11 @@ import {
 import {
   DrainAsset,
   BlockageAssessmentResponse,
+  deleteUnattachedFile,
   fetchAssets,
   assessBlockage,
+  uploadFile,
+  updateInspection,
 } from "@/lib/api";
 
 export default function InspectionsManagementPage() {
@@ -27,19 +30,22 @@ export default function InspectionsManagementPage() {
   const [siltDepth, setSiltDepth] = useState(60);
   const [standingWater, setStandingWater] = useState(45);
   const [flowObstruction, setFlowObstruction] = useState(80);
+  const [inspectionPhoto, setInspectionPhoto] = useState<File | null>(null);
   const [notes, setNotes] = useState(
     "Plastic packaging, silt deposition, and standing water observed at culvert inlet screen."
   );
   const [assessing, setAssessing] = useState(false);
   const [assessmentResult, setAssessmentResult] = useState<BlockageAssessmentResponse | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       const data = await fetchAssets();
       setAssets(data);
       if (data.length > 0) {
-        setSelectedAssetId(data[0].id);
+        const requestedAssetId = Number(new URLSearchParams(window.location.search).get("asset_id"));
+        setSelectedAssetId(data.some((asset) => asset.id === requestedAssetId) ? requestedAssetId : data[0].id);
       }
     }
     load();
@@ -48,6 +54,8 @@ export default function InspectionsManagementPage() {
   const handleRunAssessment = async () => {
     setAssessing(true);
     setSuccessMessage(null);
+    setAssessmentError(null);
+    let uploadedFileId: number | null = null;
     try {
       const result = await assessBlockage({
         drain_id: selectedAssetId,
@@ -58,9 +66,32 @@ export default function InspectionsManagementPage() {
         description: notes,
       });
       setAssessmentResult(result);
-      setSuccessMessage("AI Blockage assessment compiled & verified successfully.");
+      const status = result.status === "critical" || result.status === "high"
+        ? "priority"
+        : result.status === "moderate"
+          ? "inspection"
+          : "monitor";
+      const uploadedFile = inspectionPhoto
+        ? await uploadFile(inspectionPhoto, "inspection_image", selectedAssetId)
+        : null;
+      uploadedFileId = uploadedFile?.id ?? null;
+      await updateInspection({
+        asset_id: selectedAssetId,
+        status,
+        priority: result.status,
+        ...(uploadedFileId !== null ? { inspection_file_id: uploadedFileId } : {}),
+      });
+      setInspectionPhoto(null);
+      setSuccessMessage("Assessment completed and asset status saved.");
     } catch (err) {
-      console.warn("Assessment error:", err);
+      if (uploadedFileId !== null) {
+        try {
+          await deleteUnattachedFile(uploadedFileId);
+        } catch (cleanupError) {
+          console.error("Uploaded inspection image cleanup failed:", cleanupError);
+        }
+      }
+      setAssessmentError(err instanceof Error ? err.message : "Assessment could not be saved. Please retry.");
     } finally {
       setAssessing(false);
     }
@@ -158,15 +189,24 @@ export default function InspectionsManagementPage() {
             <Camera className="h-4 w-4 text-slate-400" />
           </div>
 
-          {/* Evidence Upload & Visual Observation Placeholder */}
+          {/* Evidence upload */}
           <div className="rounded-xl border-2 border-dashed border-slate-200 p-4 text-center dark:border-slate-700">
             <Camera className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
             <p className="mt-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Inspection Photographs Attached
+              Add inspection photograph
             </p>
             <p className="text-[11px] text-slate-400">
-              Culvert entry and upstream trash-screen evidence logged from Field Mobile Tablet
+              Optional JPEG, PNG, or WebP photo, up to 10 MiB. Stored privately in configured S3.
             </p>
+            <label htmlFor="inspection-photo" className="sr-only">Inspection photo</label>
+            <input
+              id="inspection-photo"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) => setInspectionPhoto(event.target.files?.[0] ?? null)}
+              className="mx-auto mt-3 block w-full max-w-sm text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-sky-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-sky-700 dark:text-slate-300 dark:file:bg-sky-950 dark:file:text-sky-300"
+            />
+            {inspectionPhoto && <p className="mt-2 text-[11px] text-slate-500">{inspectionPhoto.name}</p>}
           </div>
 
           {/* Physical Metric Sliders */}
@@ -178,6 +218,7 @@ export default function InspectionsManagementPage() {
               </div>
               <input
                 type="range"
+                aria-label="Visible waste"
                 min={0}
                 max={100}
                 value={visibleWaste}
@@ -193,6 +234,7 @@ export default function InspectionsManagementPage() {
               </div>
               <input
                 type="range"
+                aria-label="Silt surcharge depth"
                 min={0}
                 max={100}
                 value={siltDepth}
@@ -208,6 +250,7 @@ export default function InspectionsManagementPage() {
               </div>
               <input
                 type="range"
+                aria-label="Standing water elevation"
                 min={0}
                 max={100}
                 value={standingWater}
@@ -223,6 +266,7 @@ export default function InspectionsManagementPage() {
               </div>
               <input
                 type="range"
+                aria-label="Flow path obstruction"
                 min={0}
                 max={100}
                 value={flowObstruction}
@@ -234,10 +278,11 @@ export default function InspectionsManagementPage() {
 
           {/* Notes textarea */}
           <div>
-            <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+            <label htmlFor="inspection-notes" className="text-xs font-medium text-slate-700 dark:text-slate-300">
               Inspector Field Observations
             </label>
             <textarea
+              id="inspection-notes"
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -264,6 +309,13 @@ export default function InspectionsManagementPage() {
               </>
             )}
           </button>
+
+          {successMessage && (
+            <p role="status" className="text-xs font-medium text-emerald-700 dark:text-emerald-300">{successMessage}</p>
+          )}
+          {assessmentError && (
+            <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{assessmentError}</p>
+          )}
 
           {/* Result Banner */}
           {assessmentResult && (

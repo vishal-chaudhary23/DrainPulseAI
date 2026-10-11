@@ -8,15 +8,11 @@ import {
   Users,
   Wrench,
   CloudRain,
-  MapPin,
   ArrowUpRight,
-  TrendingUp,
-  Droplets,
   Calendar,
   Layers,
   ArrowRight,
   RefreshCw,
-  ExternalLink,
 } from "lucide-react";
 import DrainMap from "@/components/DrainMap";
 import {
@@ -40,6 +36,8 @@ export default function OperationalOverviewPage() {
   const [selectedScenarioId, setSelectedScenarioId] = useState<number>(2);
   const [loading, setLoading] = useState(true);
   const [simulating, setSimulating] = useState(false);
+  const [simulationApplied, setSimulationApplied] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
 
   // Load initial operational data
   useEffect(() => {
@@ -79,6 +77,8 @@ export default function OperationalOverviewPage() {
     if (!targetScenario) return;
 
     setSimulating(true);
+    setSimulationError(null);
+    setSimulationApplied(false);
     try {
       const simResult = await simulateScenario(targetScenario.id, targetScenario.intensity_mm);
       setDashboard((prev) => {
@@ -109,8 +109,10 @@ export default function OperationalOverviewPage() {
           return asset;
         })
       );
+      setSimulationApplied(true);
     } catch (err) {
       console.warn("Simulation call error:", err);
+      setSimulationError(err instanceof Error ? err.message : "Scenario simulation failed. Try again.");
     } finally {
       setSimulating(false);
     }
@@ -122,48 +124,54 @@ export default function OperationalOverviewPage() {
   );
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
+    <div className="dashboard-content space-y-5 p-4 sm:p-5 xl:p-7">
       {/* Top Operations Header & Context Bar */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-5 dark:border-slate-800">
-        <div>
-          <p className="text-xs text-[var(--muted)]">
-            City operations · Delhi NCT drainage basin
+      <div className="dashboard-header flex flex-col gap-3 border-b border-slate-200 pb-4 xl:flex-row xl:items-center xl:justify-between dark:border-slate-800">
+        <div className="min-w-0 flex-1">
+          <p className="meta-eyebrow font-semibold uppercase tracking-[0.12em] text-[var(--primary)]">
+            Delhi NCT · City operations
           </p>
-          <h2 className="font-heading mt-0.5 text-2xl font-semibold tracking-tight text-[var(--foreground)]">
-            Observe the network, simulate rainfall, prioritise intervention
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-[var(--foreground)] sm:text-2xl">
+            Delhi Drainage Intelligence
           </h2>
+          <p className="mt-0.5 text-xs text-[var(--muted)] sm:text-sm">
+            Observe the network, simulate rainfall, prioritise intervention.
+          </p>
         </div>
 
         {/* Operational Context Controls */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-            <Calendar className="h-3.5 w-3.5 text-slate-400" />
-            <span>Monsoon Cycle 2026</span>
+        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+          <div className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-medium text-[var(--foreground)] shadow-[var(--card-shadow)]">
+            <Calendar className="h-4 w-4 shrink-0 text-[var(--primary)]" />
+            <span className="whitespace-nowrap">Monsoon Cycle 2026</span>
           </div>
-          <div className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)]">
-            <span className="status-dot resolved" aria-hidden="true" />
-            <span>
-              Data sync {loading ? "…" : dashboard ? "from API" : "unavailable"}
+          <div className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs text-[var(--muted)]">
+            <span className={`status-dot shrink-0 ${loading ? "unknown" : dashboard ? "resolved" : "critical"}`} aria-hidden="true" />
+            <span className="whitespace-nowrap">
+              {loading ? "Syncing data…" : dashboard ? "API data current" : "API unavailable"}
             </span>
           </div>
         </div>
       </div>
 
       {/* Compact operational readout strip */}
-      <div className="flex flex-wrap divide-x divide-[var(--row-divider)] rounded-md border border-[var(--border)] bg-[var(--surface)] text-xs shadow-sm">
+      <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-[var(--card-shadow)] sm:grid-cols-3 xl:grid-cols-5">
         {[
-          { label: "Basin risk index", value: dashboard?.summary.risk_index ?? "—", suffix: "/100", icon: ShieldAlert },
-          { label: "Critical drains", value: dashboard?.summary.critical_assets ?? "—", suffix: "≥75", icon: AlertTriangle, tone: "text-red-600" },
-          { label: "Open incidents", value: dashboard?.summary.open_reports ?? reports.length, suffix: "queue", icon: Users },
-          { label: "Work orders", value: dashboard?.summary.active_tasks ?? "—", suffix: "active", icon: Wrench },
-          { label: "Mapped assets", value: dashboard?.summary.total_assets ?? assets.length, suffix: "nodes", icon: Layers },
-        ].map(({ label, value, suffix, icon: Icon, tone }) => (
-          <div key={label} className="flex min-w-[9rem] flex-1 items-center gap-2 px-4 py-2.5">
-            <Icon className="h-3.5 w-3.5 text-[var(--primary)] shrink-0" />
+          { label: "Basin risk index", value: dashboard?.summary.risk_index ?? "—", suffix: "/100", icon: ShieldAlert, tone: "text-[var(--primary)]", surface: "bg-teal-50 dark:bg-teal-950/50" },
+          { label: "Critical drains", value: dashboard?.summary.critical_assets ?? "—", suffix: "≥75 risk", icon: AlertTriangle, tone: "text-red-600 dark:text-red-400", surface: "bg-red-50 dark:bg-red-950/40" },
+          { label: "Open incidents", value: dashboard?.summary.open_reports ?? reports.length, suffix: "in queue", icon: Users, tone: "text-amber-700 dark:text-amber-400", surface: "bg-amber-50 dark:bg-amber-950/40" },
+          { label: "Active work orders", value: dashboard?.summary.active_tasks ?? "—", suffix: "active", icon: Wrench, tone: "text-sky-700 dark:text-sky-400", surface: "bg-sky-50 dark:bg-sky-950/40" },
+          { label: "Mapped assets", value: dashboard?.summary.total_assets ?? assets.length, suffix: "network nodes", icon: Layers, tone: "text-[var(--primary)]", surface: "bg-teal-50 dark:bg-teal-950/50" },
+        ].map(({ label, value, suffix, icon: Icon, tone, surface }) => (
+          <div key={label} className="kpi-card group flex min-w-0 items-center gap-3 rounded-lg border border-transparent px-3 py-3 transition duration-150 hover:-translate-y-px hover:border-[var(--border)] hover:shadow-[var(--card-shadow)] sm:px-3.5">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${surface}`}>
+              <Icon className={`h-[18px] w-[18px] ${tone}`} />
+            </span>
             <div className="min-w-0">
-              <div className="text-[10px] text-[var(--muted)]">{label}</div>
-              <div className={`font-mono-numbers text-sm font-semibold ${tone ?? "text-[var(--foreground)]"}`}>
-                {value} <span className="text-[10px] font-normal text-[var(--muted)]">{suffix}</span>
+              <div className="truncate text-[11px] font-medium text-[var(--muted)]">{label}</div>
+              <div className="mt-0.5 flex items-baseline gap-1.5">
+                <span className="font-mono-numbers text-xl font-semibold leading-none tracking-tight text-[var(--foreground)]">{value}</span>
+                <span className="truncate text-[10px] text-[var(--muted)]">{suffix}</span>
               </div>
             </div>
           </div>
@@ -171,21 +179,21 @@ export default function OperationalOverviewPage() {
       </div>
 
       {/* Main Operational Area: Map Cockpit (65%) + Context & Scenario Controls (35%) */}
-      <div className="grid gap-6 lg:grid-cols-12">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-12">
         {/* Interactive GIS Map Workspace (Occupies 8 Cols, ~67% width) */}
-        <div className="space-y-3 lg:col-span-8">
-          <div className="flex items-center justify-between">
+        <section className="map-workspace min-w-0 space-y-3 xl:col-span-8">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-sky-600" />
-              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                Drainage Risk Surface & 3D Network Twin
+              <span className="flex h-2 w-2 rounded-full bg-[var(--primary)] ring-4 ring-teal-100 dark:ring-teal-950" />
+              <h3 className="text-sm font-semibold text-[var(--foreground)] sm:text-base">
+                Drainage network & risk surface
               </h3>
             </div>
             <Link
               href="/map"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-50 hover:text-sky-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:text-sky-400 dark:hover:bg-sky-950/50"
             >
-              Full Screen GIS Workbench <ArrowUpRight className="h-3.5 w-3.5" />
+              Open GIS workbench <ArrowUpRight className="h-3.5 w-3.5" />
             </Link>
           </div>
 
@@ -194,34 +202,38 @@ export default function OperationalOverviewPage() {
             reports={reports}
             selectedAsset={selectedAsset}
             onSelectAsset={setSelectedAsset}
-            height="520px"
+            height="clamp(440px, 66vh, 700px)"
           />
-        </div>
+        </section>
 
         {/* Right Side Operational Panels (4 Cols) */}
-        <div className="space-y-4 lg:col-span-4">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:col-span-4 xl:grid-cols-1">
           {/* Active Rainfall Scenario Simulation Selector */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <section className="dashboard-panel rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--card-shadow)] sm:p-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <CloudRain className="h-4 w-4 text-sky-600" />
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Monsoon Scenario Engine
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400">
+                  <CloudRain className="h-4 w-4" />
+                </span>
+                <h4 className="text-sm font-semibold text-[var(--foreground)]">
+                  Scenario engine
                 </h4>
               </div>
               {simulating && (
-                <span className="flex items-center gap-1 text-[11px] text-sky-600">
-                  <RefreshCw className="h-3 w-3 animate-spin" /> Simulating…
+                <span role="status" className="flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+                  <RefreshCw className="h-3 w-3 animate-spin" /> Running
                 </span>
               )}
             </div>
 
-            <div className="mt-3">
-              <label className="text-xs text-slate-500">Active Atmospheric Model</label>
+            <div className="mt-4">
+              <label htmlFor="dashboard-scenario" className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">Rainfall scenario</label>
               <select
+                id="dashboard-scenario"
                 value={selectedScenarioId}
                 onChange={(e) => handleScenarioChange(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-800 outline-none transition focus:border-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                disabled={simulating || scenarios.length === 0}
+                className="mt-1.5 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-medium text-[var(--foreground)] outline-none transition hover:border-[var(--border-strong)] focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-teal-100 disabled:cursor-wait disabled:opacity-60 dark:focus-visible:ring-teal-900"
               >
                 {scenarios.map((sc) => (
                   <option key={sc.id} value={sc.id}>
@@ -232,42 +244,46 @@ export default function OperationalOverviewPage() {
             </div>
 
             {/* Scenario Projected Telemetry */}
-            <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50/70 p-3 text-xs dark:border-sky-950 dark:bg-sky-950/40">
+            <div className="mt-3 rounded-lg border border-sky-100 bg-gradient-to-br from-sky-50 to-white p-3.5 dark:border-sky-900 dark:from-sky-950/50 dark:to-slate-900">
               <div className="flex items-baseline justify-between">
-                <span className="text-slate-600 dark:text-slate-300 font-medium">
-                  Rainfall Intensity
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Projected rainfall intensity
                 </span>
-                <span className="text-base font-bold text-sky-800 dark:text-sky-300">
+                <span className="font-mono-numbers text-xl font-semibold tracking-tight text-sky-800 dark:text-sky-300">
                   {activeScenario?.intensity_mm ?? 72} mm/hr
                 </span>
               </div>
-              <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                <span>Duration: {activeScenario?.duration_hours ?? 4} hours</span>
-                <span>Period: {activeScenario?.return_period ?? "5-year"}</span>
+              <div className="mt-3 grid grid-cols-2 gap-3 border-t border-sky-100 pt-2.5 text-[11px] dark:border-sky-900">
+                <div><span className="block text-slate-500 dark:text-slate-400">Duration</span><span className="mt-0.5 block font-medium text-slate-800 dark:text-slate-200">{activeScenario?.duration_hours ?? 4} hours</span></div>
+                <div><span className="block text-slate-500 dark:text-slate-400">Return period</span><span className="mt-0.5 block font-medium text-slate-800 dark:text-slate-200">{activeScenario?.return_period ?? "5-year"}</span></div>
               </div>
             </div>
 
-            <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-              <strong className="text-slate-800 dark:text-slate-200">Municipal Directive: </strong>
+            <p className="mt-3 text-xs leading-relaxed text-[var(--muted)]">
+              <strong className="font-semibold text-[var(--foreground)]">Recommended response: </strong>
               {activeScenario?.recommendation ?? "Trigger emergency desilting in high-risk zones."}
             </p>
 
-            <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+            {simulationError && <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{simulationError}</p>}
+            {simulationApplied && !simulating && <p role="status" className="mt-3 flex items-center gap-2 text-[11px] font-medium text-teal-700 dark:text-teal-300"><span className="status-dot resolved" /> Scenario projection updated · simulated, not observed</p>}
+
+            <div className="mt-4 border-t border-[var(--border)] pt-3">
               <Link
                 href="/simulator"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400"
+                className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-3 text-xs font-semibold text-white transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
               >
-                Advanced Scenario Simulator <ArrowRight className="h-3 w-3" />
+                Open full simulator <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
-          </div>
+          </section>
 
           {/* Quick Selected Asset Summary */}
           {selectedAsset && (
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <section className="dashboard-panel rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--card-shadow)] sm:p-5">
               <div className="flex items-center justify-between">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Inspected Node
+                <div>
+                  <div className="text-sm font-semibold text-[var(--foreground)]">Selected drain</div>
+                  <div className="mt-0.5 text-[10px] text-[var(--muted)]">Network asset overview</div>
                 </div>
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
@@ -282,92 +298,90 @@ export default function OperationalOverviewPage() {
               <h4 className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
                 {selectedAsset.name}
               </h4>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[var(--muted)]">
                 {selectedAsset.ward} · {selectedAsset.zone}
               </p>
 
-              <div className="mt-3 grid grid-cols-3 gap-2 border-y border-slate-100 py-2 text-center text-xs dark:border-slate-800">
+              <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--border)] border-y border-[var(--border)] py-3 text-center">
                 <div>
-                  <div className="text-[10px] text-slate-400">Risk Score</div>
-                  <div className="text-sm font-bold text-red-600 dark:text-red-400">
+                  <div className="text-[10px] font-medium text-[var(--muted)]">Risk score</div>
+                  <div className="mt-1 font-mono-numbers text-lg font-semibold text-red-600 dark:text-red-400">
                     {selectedAsset.risk ?? 60}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] text-slate-400">Blockage</div>
-                  <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                  <div className="text-[10px] font-medium text-[var(--muted)]">Blockage</div>
+                  <div className="mt-1 font-mono-numbers text-lg font-semibold text-[var(--foreground)]">
                     {selectedAsset.blockage}%
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] text-slate-400">Silt Surcharge</div>
-                  <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                  <div className="text-[10px] font-medium text-[var(--muted)]">Silt surcharge</div>
+                  <div className="mt-1 font-mono-numbers text-lg font-semibold text-[var(--foreground)]">
                     {selectedAsset.silt}%
                   </div>
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center justify-between text-xs">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <Link
-                  href="/inspections"
-                  className="font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400"
+                  href={`/inspections?asset_id=${selectedAsset.id}`}
+                  className="rounded px-1 py-1 font-semibold text-sky-700 transition hover:text-sky-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:text-sky-400 dark:hover:text-sky-300"
                 >
                   Log AI Inspection →
                 </Link>
                 <Link
-                  href="/work-orders"
-                  className="font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+                  href={`/work-orders?asset_id=${selectedAsset.id}`}
+                  className="rounded px-1 py-1 font-semibold text-teal-700 transition hover:text-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:text-teal-300 dark:hover:text-teal-200"
                 >
                   Dispatch Crew →
                 </Link>
               </div>
-            </div>
+            </section>
           )}
         </div>
       </div>
 
       {/* Secondary Operational Area: Priority Action Queue & Citizen Incident Feed */}
-      <div className="grid gap-6 lg:grid-cols-12">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-12">
         {/* Priority Maintenance & Inspection Queue (7 Cols) — compact row list */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:col-span-7">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
+        <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--card-shadow)] xl:col-span-7">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">
                 Municipal Action Queue
               </h3>
-              <p className="text-xs text-slate-500">Ranked by hydraulic surcharge vulnerability</p>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">Ranked by hydraulic surcharge vulnerability</p>
             </div>
             <Link
               href="/network"
-              className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400"
+              className="shrink-0 rounded px-2 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:text-sky-400 dark:hover:bg-sky-950/50"
             >
-              View Network ({assets.length}) →
+              Network ({assets.length}) →
             </Link>
           </div>
 
-          <div className="px-4">
-            {priorityList.map((asset, index) => (
-              <div
+          <div className="divide-y divide-[var(--border)] px-3 sm:px-4">
+            {priorityList.length > 0 ? priorityList.map((asset, index) => (
+              <button
+                type="button"
                 key={asset.id}
                 onClick={() => setSelectedAsset(asset)}
-                className={`flex cursor-pointer items-center justify-between py-3 transition ${
-                  index < priorityList.length - 1 ? "border-b border-slate-100 dark:border-slate-800" : ""
-                } ${
-                  selectedAsset?.id === asset.id
-                    ? "bg-sky-50/60 -mx-4 px-4 dark:bg-sky-950/20"
-                    : "hover:bg-slate-50/80 dark:-mx-0 dark:hover:bg-slate-800/30"
+                className={`flex w-full items-center justify-between gap-3 px-2 py-3.5 text-left transition-colors hover:bg-slate-50 focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-[var(--primary)] dark:hover:bg-slate-800/50 ${
+                  selectedAsset?.id === asset.id ? "bg-teal-50/70 dark:bg-teal-950/20" : ""
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {index + 1}
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${
+                    index === 0 ? "bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  }`}>
+                    {String(index + 1).padStart(2, "0")}
                   </div>
                   <div className="min-w-0">
-                    <div className="meta-label">Drain asset</div>
-                    <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                    <div className="text-sm font-semibold text-[var(--foreground)] truncate">
                       {asset.name}
                     </div>
-                    <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--muted)]">
                       <span className="asset-id-badge">DP-DEL-{String(asset.id).padStart(4,"0")}</span>
                       <span>·</span>
                       <span className="truncate">{asset.ward}</span>
@@ -375,54 +389,52 @@ export default function OperationalOverviewPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                <div className="flex shrink-0 items-center gap-2.5">
                   <div className="text-right">
-                    <span className="block text-xs font-bold font-mono-numbers text-slate-900 dark:text-white">
+                    <span className="block font-mono-numbers text-sm font-semibold text-[var(--foreground)]">
                       {asset.risk ?? 60}
                     </span>
-                    <span className="block text-[10px] text-slate-400">risk</span>
+                    <span className="block text-[9px] uppercase tracking-wide text-[var(--muted)]">risk</span>
                   </div>
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                    className={`rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-wide ${
                       asset.priority === "critical"
-                        ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
+                        ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
                         : asset.priority === "high"
-                        ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"
-                        : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                        ? "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
+                        : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
                     }`}
                   >
                     {asset.priority}
                   </span>
                 </div>
-              </div>
-            ))}
+              </button>
+            )) : <div className="px-3 py-8 text-center text-xs text-[var(--muted)]">{loading ? "Loading priority assets…" : "No drainage assets are currently available."}</div>}
           </div>
-        </div>
+        </section>
 
         {/* Live Citizen & Field Incident Feed (5 Cols) — scrollable */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:col-span-5">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
+        <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--card-shadow)] xl:col-span-5">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">
                 Field Incident Feed
               </h3>
-              <p className="text-xs text-slate-500">Citizen submissions and patrol flags</p>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">Citizen submissions and patrol flags</p>
             </div>
             <Link
               href="/reports"
-              className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400"
+              className="shrink-0 rounded px-2 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:text-sky-400 dark:hover:bg-sky-950/50"
             >
-              Triage All ({reports.length}) →
+              Triage ({reports.length}) →
             </Link>
           </div>
 
-          <div className="px-4 py-1 panel-scroll">
-            {reports.map((report, index) => (
+          <div className="panel-scroll divide-y divide-[var(--border)] px-4">
+            {reports.length > 0 ? reports.map((report) => (
               <div
                 key={report.id}
-                className={`py-3 text-xs ${
-                  index < reports.length - 1 ? "border-b border-slate-100 dark:border-slate-800" : ""
-                }`}
+                className="py-3.5 text-xs"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -433,10 +445,10 @@ export default function OperationalOverviewPage() {
                       }`}
                       aria-hidden="true"
                     />
-                    <span className="meta-label capitalize">{report.reporter_type}</span>
+                    <span className="text-[10px] font-medium capitalize text-[var(--muted)]">{report.reporter_type} report</span>
                   </div>
                   <span
-                    className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                    className={`flex-shrink-0 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-wide ${
                       report.status === "resolved"
                         ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
                         : report.status === "assigned"
@@ -449,18 +461,18 @@ export default function OperationalOverviewPage() {
                     {report.status.replace("_", " ")}
                   </span>
                 </div>
-                <div className="mt-1 font-semibold text-slate-800 dark:text-slate-200">{report.title}</div>
-                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                <div className="mt-1.5 font-semibold text-[var(--foreground)]">{report.title}</div>
+                <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)] line-clamp-2">
                   {report.description}
                 </p>
-                <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
+                <div className="mt-2 flex items-center justify-between text-[10px] text-[var(--muted)]">
                   <span className="capitalize">{report.reporter_type}</span>
                   <span className="asset-id-badge">DP-REP-{String(report.id).padStart(4,"0")}</span>
                 </div>
               </div>
-            ))}
+            )) : <div className="px-3 py-8 text-center text-xs text-[var(--muted)]">{loading ? "Loading incident reports…" : "No active incidents to show."}</div>}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

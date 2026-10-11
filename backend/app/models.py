@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, func
 
 from app.database import Base
 
@@ -50,6 +50,22 @@ class IncidentReport(Base):
     reporter_type = Column(String, nullable=False)
     status = Column(String, default="new")
     photo_url = Column(String, default="")
+    photo_file_id = Column(Integer, nullable=True)
+
+
+class StoredFile(Base):
+    __tablename__ = "stored_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, nullable=False, index=True)
+    purpose = Column(String, nullable=False, index=True)
+    original_filename = Column(String, nullable=False)
+    content_type = Column(String, nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    object_key = Column(String, nullable=False, unique=True)
+    related_type = Column(String, nullable=True)
+    related_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class MaintenanceTask(Base):

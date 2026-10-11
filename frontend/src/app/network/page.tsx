@@ -30,6 +30,12 @@ export default function NetworkExplorerPage() {
       try {
         const data = await fetchAssets();
         setAssets(data);
+        const params = new URLSearchParams(window.location.search);
+        const query = params.get("search") ?? "";
+        const requestedAssetId = Number(params.get("asset_id"));
+        if (query) setSearch(query);
+        const requestedAsset = data.find((asset) => asset.id === requestedAssetId);
+        if (requestedAsset) setSelectedAsset(requestedAsset);
       } catch (err) {
         console.error("Failed to load network assets:", err);
       } finally {
@@ -44,7 +50,8 @@ export default function NetworkExplorerPage() {
       const matchSearch =
         a.name.toLowerCase().includes(search.toLowerCase()) ||
         a.ward.toLowerCase().includes(search.toLowerCase()) ||
-        a.zone.toLowerCase().includes(search.toLowerCase());
+        a.zone.toLowerCase().includes(search.toLowerCase()) ||
+        `dp-del-${String(a.id).padStart(4, "0")}`.includes(search.toLowerCase());
       const matchZone = selectedZone === "all" || a.zone === selectedZone;
       const matchStatus = selectedStatus === "all" || a.status === selectedStatus;
       return matchSearch && matchZone && matchStatus;

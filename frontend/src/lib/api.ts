@@ -32,6 +32,17 @@ export interface IncidentReport {
   reporter_type: "citizen" | "inspector" | "operator";
   status: "new" | "in_review" | "assigned" | "resolved";
   photo_url: string;
+  photo_file_id?: number | null;
+}
+
+export interface UploadedFile {
+  id: number;
+  purpose: "incident_photo" | "inspection_image" | "infrastructure_document";
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  download_url: string;
+  expires_in: number;
 }
 
 export interface MaintenanceTask {
@@ -434,62 +445,81 @@ export async function fetchScenarios(): Promise<RainfallScenario[]> {
 }
 
 export async function simulateScenario(scenarioId: number, rainfallMm: number): Promise<ScenarioSimulationResponse> {
+  let res: Response;
   try {
-    const res = await fetch(`${API_BASE}/api/scenarios/simulate`, {
+    res = await fetch(`${API_BASE}/api/scenarios/simulate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scenario_id: scenarioId, rainfall_mm: rainfallMm }),
     });
-    if (res.ok) return await res.json();
-  } catch {}
-  return {
-    scenario_id: scenarioId,
-    rainfall_mm: rainfallMm,
-    risk_index: Math.min(100, Math.round(50 + (rainfallMm * 0.28))),
-    critical_assets: rainfallMm >= 70 ? 3 : 1,
-    high_priority: rainfallMm >= 50 ? 4 : 2,
-    top_assets: FALLBACK_ASSETS.map((a) => ({
-      id: a.id,
-      name: a.name,
-      zone: a.zone,
-      ward: a.ward,
-      risk: Math.min(100, Math.round((a.risk || 60) + ((rainfallMm - 40) * 0.25))),
-      priority: a.priority,
-      recommendation: a.recommendation || "Dispatch desilting patrol.",
-      condition_score: a.condition_score,
-      status: a.status,
-    })),
-  };
+  } catch {
+    throw new Error("Could not reach the scenario simulation API.");
+  }
+  if (!res.ok) {
+    throw new Error(`Scenario simulation failed (HTTP ${res.status}).`);
+  }
+  return await res.json();
 }
 
 export async function assessBlockage(payload: BlockageAssessmentRequest): Promise<BlockageAssessmentResponse> {
+  let res: Response;
   try {
-    const res = await fetch(`${API_BASE}/api/assess-blockage`, {
+    res = await fetch(`${API_BASE}/api/assess-blockage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (res.ok) return await res.json();
-  } catch {}
-  const rawScore = (payload.visible_waste * 0.35) + (payload.silt_depth * 0.25) + (payload.standing_water * 0.2) + (payload.flow_obstruction * 0.2);
-  const score = Math.round(rawScore * 10) / 10;
-  return {
-    drain_id: payload.drain_id ?? null,
-    score,
-    confidence: 0.86,
-    status: score >= 75 ? "critical" : score >= 55 ? "high" : score >= 35 ? "moderate" : "low",
-    recommendation: score >= 65 ? "Deploy high-pressure jetting truck and silt vacuum." : "Schedule routine clearance within standard shift.",
-  };
+  } catch {
+    throw new Error("Could not reach the blockage assessment API.");
+  }
+  if (!res.ok) {
+    throw new Error(`Blockage assessment failed (HTTP ${res.status}).`);
+  }
+  return await res.json();
 }
 
 export async function submitReport(payload: Partial<IncidentReport>): Promise<IncidentReport> {
-  const res = await fetch(`${API_BASE}/api/submit-report`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Failed to submit report");
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/submit-report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error("Could not reach the incident report API.");
+  }
+  if (!res.ok) {
+    const response = await res.json().catch(() => null);
+    throw new Error(response?.detail ?? `Incident report submission failed (HTTP ${res.status}).`);
+  }
   return await res.json();
+}
+
+export async function uploadFile(
+  file: File,
+  purpose: UploadedFile["purpose"],
+  relatedAssetId?: number
+): Promise<UploadedFile> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("purpose", purpose);
+  if (relatedAssetId !== undefined) form.append("related_asset_id", String(relatedAssetId));
+
+  const res = await fetch(`${API_BASE}/api/files/upload`, { method: "POST", body: form });
+  if (!res.ok) {
+    const response = await res.json().catch(() => null);
+    throw new Error(response?.detail ?? `File upload failed (HTTP ${res.status}).`);
+  }
+  return await res.json();
+}
+
+export async function deleteUnattachedFile(fileId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/files/${fileId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const response = await res.json().catch(() => null);
+    throw new Error(response?.detail ?? `Uploaded file cleanup failed (HTTP ${res.status}).`);
+  }
 }
 
 export async function createTask(payload: Partial<MaintenanceTask>): Promise<MaintenanceTask> {
@@ -499,5 +529,22 @@ export async function createTask(payload: Partial<MaintenanceTask>): Promise<Mai
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to create maintenance task");
+  return await res.json();
+}
+
+export async function updateInspection(payload: {
+  asset_id: number;
+  status: DrainAsset["status"];
+  priority: DrainAsset["priority"];
+  inspection_file_id?: number;
+}): Promise<{ status: string; asset_id: number }> {
+  const res = await fetch(`${API_BASE}/api/inspections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Could not save inspection update (HTTP ${res.status}).`);
+  }
   return await res.json();
 }

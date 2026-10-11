@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -26,6 +26,7 @@ import {
   Building2,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
+import { DrainAsset, IncidentReport, fetchAssets, fetchReports } from "@/lib/api";
 
 interface NavItem {
   href: string;
@@ -54,6 +55,77 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchAssets, setSearchAssets] = useState<DrainAsset[]>([]);
+  const [searchReports, setSearchReports] = useState<IncidentReport[]>([]);
+  const [searchDataLoaded, setSearchDataLoaded] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
+  useEffect(() => {
+    Promise.all([fetchAssets(), fetchReports()])
+      .then(([assets, reports]) => {
+        setSearchAssets(assets);
+        setSearchReports(reports);
+        setSearchDataLoaded(true);
+      })
+      .catch((err) => {
+        console.error("Global search data could not be loaded:", err);
+        setSearchDataLoaded(true);
+      });
+  }, []);
+
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const matchedAssets = normalizedSearch
+    ? searchAssets.filter((asset) =>
+        `${asset.name} ${asset.ward} ${asset.zone} DP-DEL-${String(asset.id).padStart(4, "0")}`
+          .toLowerCase()
+          .includes(normalizedSearch)
+      ).slice(0, 4)
+    : [];
+  const matchedReports = normalizedSearch
+    ? searchReports.filter((report) =>
+        `${report.title} ${report.description} DP-REP-${String(report.id).padStart(4, "0")}`
+          .toLowerCase()
+          .includes(normalizedSearch)
+      ).slice(0, 3)
+    : [];
+
+  const searchResults = (mobile = false) => normalizedSearch ? (
+    <div className={`search-results absolute z-50 mt-2 max-h-80 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[var(--elevated-shadow)] ${mobile ? "left-0 right-0 top-full" : "left-0 right-0 top-full"}`}>
+      {matchedAssets.map((asset) => (
+        <Link
+          key={`asset-${asset.id}`}
+          href={`/network?asset_id=${asset.id}&search=${encodeURIComponent(searchQuery)}`}
+          onClick={() => {
+            setSearchQuery("");
+            setMobileSearchOpen(false);
+          }}
+          className="block rounded-lg px-3 py-2 transition hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+        >
+          <span className="block truncate text-xs font-semibold text-[var(--foreground)]">{asset.name}</span>
+          <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">Drain · {asset.ward} · DP-DEL-{String(asset.id).padStart(4, "0")}</span>
+        </Link>
+      ))}
+      {matchedReports.map((report) => (
+        <Link
+          key={`report-${report.id}`}
+          href={`/reports?report_id=${report.id}&search=${encodeURIComponent(searchQuery)}`}
+          onClick={() => {
+            setSearchQuery("");
+            setMobileSearchOpen(false);
+          }}
+          className="block rounded-lg px-3 py-2 transition hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+        >
+          <span className="block truncate text-xs font-semibold text-[var(--foreground)]">{report.title}</span>
+          <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">Incident · {report.status.replace("_", " ")} · DP-REP-{String(report.id).padStart(4, "0")}</span>
+        </Link>
+      ))}
+      {searchDataLoaded && matchedAssets.length === 0 && matchedReports.length === 0 && (
+        <p className="px-3 py-4 text-center text-xs text-[var(--muted)]">No drains or reports match “{searchQuery}”.</p>
+      )}
+      {!searchDataLoaded && <p role="status" className="px-3 py-4 text-center text-xs text-[var(--muted)]">Loading searchable records…</p>}
+    </div>
+  ) : null;
 
   return (
     <div className="flex min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -146,7 +218,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top Header Bar */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-5">
+        <header className="relative flex h-14 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-5">
           <div className="flex items-center gap-3">
             {/* Mobile menu toggle */}
             <button
@@ -168,18 +240,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="hidden md:flex flex-1 max-w-md mx-4 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2.5 py-1.5">
+          <div className="relative mx-4 hidden max-w-md flex-1 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2.5 py-1.5 md:flex">
             <Search className="h-3.5 w-3.5 text-[var(--muted)]" />
             <input
               type="search"
               placeholder="Search drains, wards, asset IDs…"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
               className="w-full bg-transparent text-xs text-[var(--foreground)] placeholder:text-[var(--muted-light)] outline-none"
               aria-label="Global geographic search"
+              aria-expanded={Boolean(normalizedSearch)}
+              aria-controls="global-search-results"
             />
+            {normalizedSearch && <div id="global-search-results">{searchResults()}</div>}
           </div>
 
           {/* Right Header Actions */}
           <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setMobileSearchOpen((open) => !open)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-100 md:hidden dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              aria-label={mobileSearchOpen ? "Close search" : "Open search"}
+              aria-expanded={mobileSearchOpen}
+            >
+              {mobileSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+            </button>
             {/* Theme Toggle (Light / Dark) */}
             <button
               type="button"
@@ -214,6 +300,25 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        {mobileSearchOpen && (
+          <div className="relative z-40 border-b border-[var(--border)] bg-[var(--surface)] p-3 md:hidden">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2">
+              <Search className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+              <input
+                type="search"
+                autoFocus
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search drains, wards, reports…"
+                aria-label="Search drains, wards, and reports"
+                aria-expanded={Boolean(normalizedSearch)}
+                className="w-full bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-light)]"
+              />
+            </div>
+            {searchResults(true)}
+          </div>
+        )}
 
         {/* Mobile Navigation Drawer */}
         {mobileMenuOpen && (

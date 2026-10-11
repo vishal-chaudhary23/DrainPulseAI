@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.assessment import assess_blockage
-from app.auth import apply_tenant_filter, create_demo_session, get_request_context, require_role
+from app.auth import apply_tenant_filter, assert_tenant_access, create_demo_session, get_request_context, require_role
 from app.data import seed_data
 from app.database import (
     Base,
@@ -23,7 +25,7 @@ from app.database import (
 )
 from app.migrations import run_migrations
 from app.logic import build_priority_notes, risk_level_from_score, score_drain
-from app.models import DrainAsset, IncidentReport, MaintenanceTask, RainfallScenario, User
+from app.models import DrainAsset, IncidentReport, MaintenanceTask, RainfallScenario, StoredFile, User
 from app.schemas import (
     BlockageAssessmentRequest,
     BlockageAssessmentResponse,
@@ -37,8 +39,20 @@ from app.schemas import (
     ScenarioSimulationRequest,
     ScenarioSimulationResponse,
 )
+from app.storage import (
+    SIGNED_URL_TTL_SECONDS,
+    StorageConfigurationError,
+    StorageOperationError,
+    UploadValidationError,
+    build_object_key,
+    create_download_url,
+    delete_object,
+    store_object,
+    validate_upload,
+)
 
 app = FastAPI(title="DrainPulse AI API", version="1.0.0")
+logger = logging.getLogger(__name__)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,6 +62,31 @@ app.add_middleware(
 )
 
 Base.metadata.create_all(bind=engine)
+
+
+def _temporary_file_url(stored_file: StoredFile) -> str:
+    try:
+        return create_download_url(stored_file.object_key, stored_file.original_filename, stored_file.content_type)
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except StorageOperationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _require_file_access(request: Request, stored_file: StoredFile) -> None:
+    assert_tenant_access(request, stored_file.tenant_id)
+
+
+def _upload_response(stored_file: StoredFile, download_url: str) -> dict[str, str | int]:
+    return {
+        "id": stored_file.id,
+        "purpose": stored_file.purpose,
+        "filename": stored_file.original_filename,
+        "content_type": stored_file.content_type,
+        "size_bytes": stored_file.size_bytes,
+        "download_url": download_url,
+        "expires_in": SIGNED_URL_TTL_SECONDS,
+    }
 
 
 @app.on_event("startup")
@@ -165,10 +204,21 @@ def get_reports(
     request: Request,
     db: Session = Depends(get_db),
     _context: dict[str, str] = Depends(require_role("admin", "supervisor", "operator")),
-) -> list[IncidentReport]:
+) -> list[IncidentReportSchema]:
     query = select(IncidentReport)
     filtered = apply_tenant_filter(request, query, IncidentReport)
-    return db.scalars(filtered).all()
+    reports = db.scalars(filtered).all()
+    result = []
+    for report in reports:
+        response = IncidentReportSchema.model_validate(report)
+        if report.photo_file_id is not None:
+            stored_file = db.get(StoredFile, report.photo_file_id)
+            if stored_file is None:
+                raise HTTPException(status_code=500, detail="Incident photo metadata is missing.")
+            _require_file_access(request, stored_file)
+            response = response.model_copy(update={"photo_url": _temporary_file_url(stored_file)})
+        result.append(response)
+    return result
 
 
 @app.get("/api/scenarios", response_model=list[ScenarioResponse])
@@ -351,6 +401,19 @@ def submit_report(
     _context: dict[str, str] = Depends(require_role("admin", "supervisor", "operator")),
 ) -> IncidentReport:
     context = get_request_context(request)
+    stored_file = None
+    if payload.photo_file_id is not None:
+        stored_file = db.get(StoredFile, payload.photo_file_id)
+        if stored_file is None:
+            raise HTTPException(status_code=404, detail="Uploaded incident photo was not found.")
+        _require_file_access(request, stored_file)
+        if stored_file.tenant_id != context["tenant_id"]:
+            raise HTTPException(status_code=403, detail="The incident photo belongs to a different tenant.")
+        if stored_file.purpose != "incident_photo" or stored_file.related_type is not None:
+            raise HTTPException(status_code=400, detail="The uploaded file cannot be attached to this incident.")
+        photo_url = _temporary_file_url(stored_file)
+    else:
+        photo_url = payload.photo_url
     report = IncidentReport(
         tenant_id=context["tenant_id"],
         title=payload.title,
@@ -360,12 +423,147 @@ def submit_report(
         severity=payload.severity,
         reporter_type=payload.reporter_type,
         status=payload.status,
-        photo_url=payload.photo_url,
+        photo_url="" if stored_file is not None else payload.photo_url,
+        photo_file_id=payload.photo_file_id,
     )
     db.add(report)
+    try:
+        db.flush()
+        if stored_file is not None:
+            stored_file.related_type = "incident_report"
+            stored_file.related_id = report.id
+        db.commit()
+        db.refresh(report)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Incident report could not be saved.") from exc
+    response = IncidentReportSchema.model_validate(report)
+    if stored_file is not None:
+        response = response.model_copy(update={"photo_url": photo_url})
+    return response
+
+
+@app.post("/api/files/upload")
+async def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    purpose: str = Form(...),
+    related_asset_id: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+    _context: dict[str, str] = Depends(require_role("admin", "supervisor", "operator")),
+) -> dict[str, str | int]:
+    context = get_request_context(request)
+    body = await file.read(10 * 1024 * 1024 + 1)
+    try:
+        validated = validate_upload(file.filename or "", file.content_type, body, purpose)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    related_asset = None
+    if related_asset_id is not None:
+        if purpose not in {"inspection_image", "infrastructure_document"}:
+            raise HTTPException(status_code=400, detail="This upload purpose cannot be attached to a drainage asset.")
+        related_asset = db.get(DrainAsset, related_asset_id)
+        if related_asset is None:
+            raise HTTPException(status_code=404, detail="Drain asset not found.")
+        try:
+            assert_tenant_access(request, related_asset.tenant_id)
+        except HTTPException:
+            raise
+
+    tenant_id = related_asset.tenant_id if related_asset is not None and context["role"] == "admin" else context["tenant_id"]
+    object_key = build_object_key(tenant_id, purpose, validated.extension)
+    try:
+        store_object(object_key, body, validated.content_type)
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except StorageOperationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    try:
+        download_url = create_download_url(object_key, validated.original_filename, validated.content_type)
+    except StorageConfigurationError as exc:
+        try:
+            delete_object(object_key)
+        except (StorageConfigurationError, StorageOperationError):
+            logger.exception("Unable to remove uploaded S3 object after signing configuration failed.")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except StorageOperationError as exc:
+        try:
+            delete_object(object_key)
+        except (StorageConfigurationError, StorageOperationError):
+            logger.exception("Unable to remove uploaded S3 object after signing failed.")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    stored_file = StoredFile(
+        tenant_id=tenant_id,
+        purpose=purpose,
+        original_filename=validated.original_filename,
+        content_type=validated.content_type,
+        size_bytes=len(body),
+        object_key=object_key,
+        related_type=(
+            "drain_asset"
+            if related_asset is not None and purpose == "infrastructure_document"
+            else None
+        ),
+        related_id=(
+            related_asset.id
+            if related_asset is not None and purpose == "infrastructure_document"
+            else None
+        ),
+    )
+    db.add(stored_file)
+    try:
+        db.commit()
+        db.refresh(stored_file)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        try:
+            delete_object(object_key)
+        except (StorageConfigurationError, StorageOperationError):
+            logger.exception("Unable to remove orphaned S3 object after metadata insert failed.")
+        raise HTTPException(status_code=500, detail="File metadata could not be saved.") from exc
+    return _upload_response(stored_file, download_url)
+
+
+@app.get("/api/files/{file_id}/download-url")
+def get_file_download_url(
+    file_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _context: dict[str, str] = Depends(require_role("admin", "supervisor", "operator")),
+) -> dict[str, str | int]:
+    stored_file = db.get(StoredFile, file_id)
+    if stored_file is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    _require_file_access(request, stored_file)
+    return {
+        "download_url": _temporary_file_url(stored_file),
+        "expires_in": SIGNED_URL_TTL_SECONDS,
+    }
+
+
+@app.delete("/api/files/{file_id}", status_code=204)
+def delete_unattached_file(
+    file_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _context: dict[str, str] = Depends(require_role("admin", "supervisor", "operator")),
+) -> None:
+    stored_file = db.get(StoredFile, file_id)
+    if stored_file is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    _require_file_access(request, stored_file)
+    if stored_file.related_type is not None:
+        raise HTTPException(status_code=409, detail="A file attached to an operational record cannot be deleted here.")
+    try:
+        delete_object(stored_file.object_key)
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except StorageOperationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    db.delete(stored_file)
     db.commit()
-    db.refresh(report)
-    return report
 
 
 @app.post("/api/inspections")
@@ -374,7 +572,7 @@ def update_inspection(
     request: Request,
     db: Session = Depends(get_db),
     _context: dict[str, str] = Depends(require_role("admin", "supervisor", "operator")),
-) -> dict[str, str]:
+) -> dict[str, str | int]:
     asset = db.get(DrainAsset, payload.asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -389,6 +587,19 @@ def update_inspection(
         asset.condition_score = payload.condition_score
     if payload.priority is not None:
         asset.priority = payload.priority
+    if payload.inspection_file_id is not None:
+        stored_file = db.get(StoredFile, payload.inspection_file_id)
+        if stored_file is None:
+            raise HTTPException(status_code=404, detail="Inspection image was not found.")
+        _require_file_access(request, stored_file)
+        if stored_file.tenant_id != asset.tenant_id:
+            raise HTTPException(status_code=403, detail="The inspection image belongs to a different tenant.")
+        if stored_file.purpose != "inspection_image":
+            raise HTTPException(status_code=400, detail="The uploaded file is not an inspection image.")
+        if stored_file.related_type not in {None, "drain_asset"} or stored_file.related_id not in {None, asset.id}:
+            raise HTTPException(status_code=400, detail="The inspection image is linked to a different asset.")
+        stored_file.related_type = "drain_asset"
+        stored_file.related_id = asset.id
     asset.notes = f"Inspection update: {payload.status}."
     db.commit()
     return {"status": "updated", "asset_id": payload.asset_id}

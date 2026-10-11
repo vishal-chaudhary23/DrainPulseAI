@@ -11,3 +11,68 @@ dist/
 build/
 *.sqlite
 *.sqlite3
+
+# =========================
+# Environment variables / secrets
+# =========================
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# AWS credentials
+.aws/
+credentials
+secrets/
+*.pem
+*.key
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+myvenv/
+
+# =========================
+# Node.js / Next.js
+# =========================
+node_modules/
+.next/
+out/
+.turbo/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# =========================
+# Local databases / uploads
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+# Do not ignore the entire data/ directory unless it contains only generated data.
+
+# =========================
+# OS / editor
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# =========================
+# Build / generated files
+# =========================
+dist/
+build/

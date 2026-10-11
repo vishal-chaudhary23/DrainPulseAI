@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertOctagon,
@@ -9,7 +9,7 @@ import {
   ExternalLink,
   Image as ImageIcon,
 } from "lucide-react";
-import { IncidentReport, fetchReports, submitReport } from "@/lib/api";
+import { IncidentReport, deleteUnattachedFile, fetchReports, submitReport, uploadFile } from "@/lib/api";
 
 // Stable identifier generator
 function formatReportId(id: number): string {
@@ -68,22 +68,44 @@ export default function CitizenReportsPage() {
   const [newSeverity, setNewSeverity] = useState<"critical" | "high" | "medium">("high");
   const [newLat, setNewLat] = useState("28.5668");
   const [newLon, setNewLon] = useState("77.2431");
+  const [newPhoto, setNewPhoto] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [focusedReportId, setFocusedReportId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchReports().then((data) => {
       setReports(data);
+      const params = new URLSearchParams(window.location.search);
+      setSearch(params.get("search") ?? "");
+      const reportId = Number(params.get("report_id"));
+      if (data.some((report) => report.id === reportId)) setFocusedReportId(reportId);
       setLoading(false);
     });
   }, []);
+
+  const filteredReports = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return reports;
+    return reports.filter((report) =>
+      `${report.title} ${report.description} DP-REP-${String(report.id).padStart(4, "0")}`
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [reports, search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
     setSubmitting(true);
+    setSubmitError(null);
+    let uploadedFileId: number | null = null;
     try {
+      const uploadedFile = newPhoto ? await uploadFile(newPhoto, "incident_photo") : null;
+      uploadedFileId = uploadedFile?.id ?? null;
       const created = await submitReport({
         title: newTitle,
         description: newDescription,
@@ -92,14 +114,23 @@ export default function CitizenReportsPage() {
         lon: parseFloat(newLon) || 77.24,
         reporter_type: "citizen",
         status: "new",
-        photo_url: "/images/report-new.jpg",
+        photo_url: "",
+        photo_file_id: uploadedFileId,
       });
       setReports((prev) => [created, ...prev]);
       setShowSubmitModal(false);
       setNewTitle("");
       setNewDescription("");
+      setNewPhoto(null);
     } catch (err) {
-      console.warn("Submit error:", err);
+      if (uploadedFileId !== null) {
+        try {
+          await deleteUnattachedFile(uploadedFileId);
+        } catch (cleanupError) {
+          console.error("Uploaded incident photo cleanup failed:", cleanupError);
+        }
+      }
+      setSubmitError(err instanceof Error ? err.message : "The incident report could not be submitted.");
     } finally {
       setSubmitting(false);
     }
@@ -137,16 +168,37 @@ export default function CitizenReportsPage() {
       </div>
 
       {/* Reports grid */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <label className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 sm:max-w-sm dark:border-slate-800 dark:bg-slate-900">
+          <MapPin className="h-4 w-4 shrink-0 text-slate-400" />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Filter incident reports…"
+            aria-label="Filter incident reports"
+            className="w-full bg-transparent text-xs text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
+          />
+        </label>
+        <p className="text-xs text-slate-500">
+          Report status is read-only here; the current API does not expose triage or assignment updates.
+        </p>
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center h-32 text-slate-400 text-xs">Loading reports…</div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {reports.map((report) => {
+          {filteredReports.map((report) => {
             const evStatus = getEvidenceStatus(report);
             return (
               <div
                 key={report.id}
-                className="flex flex-col rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden"
+                className={`flex flex-col overflow-hidden rounded-lg border bg-white shadow-sm dark:bg-slate-900 ${
+                  report.id === focusedReportId
+                    ? "border-sky-500 ring-2 ring-sky-100 dark:border-sky-500 dark:ring-sky-950"
+                    : "border-slate-200 dark:border-slate-800"
+                }`}
               >
                 {/* Evidence photograph */}
                 <div
@@ -225,13 +277,13 @@ export default function CitizenReportsPage() {
                         href="/map"
                         className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400"
                       >
-                        Locate on Map →
+                        Open map →
                       </Link>
                       <Link
                         href="/work-orders"
                         className="rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
                       >
-                        Assign Crew
+                        View work orders
                       </Link>
                     </div>
                   </div>
@@ -239,6 +291,11 @@ export default function CitizenReportsPage() {
               </div>
             );
           })}
+          {filteredReports.length === 0 && (
+            <p className="col-span-full rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-xs text-slate-500 dark:border-slate-700">
+              {reports.length === 0 ? "No reports are available." : "No incident reports match this filter."}
+            </p>
+          )}
         </div>
       )}
 
@@ -315,13 +372,27 @@ export default function CitizenReportsPage() {
               />
             </div>
 
+            <div>
+              <label htmlFor="report-photo" className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                Evidence photo (optional, JPEG/PNG/WebP up to 10 MiB)
+              </label>
+              <input
+                id="report-photo"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => setNewPhoto(event.target.files?.[0] ?? null)}
+                className="mt-1.5 block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-sky-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-sky-700 dark:text-slate-300 dark:file:bg-sky-950 dark:file:text-sky-300"
+              />
+              {newPhoto && <p className="mt-1 text-[11px] text-slate-500">{newPhoto.name}</p>}
+            </div>
+
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <label htmlFor="report-severity" className="font-medium text-slate-700 dark:text-slate-300">Severity</label>
                 <select
                   id="report-severity"
                   value={newSeverity}
-                  onChange={(e) => setNewSeverity(e.target.value as any)}
+                  onChange={(e) => setNewSeverity(e.target.value as "critical" | "high" | "medium")}
                   className="mt-1.5 w-full rounded border border-slate-200 bg-slate-50 p-2 font-medium text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="critical">Critical (&gt;20cm ponding)</option>
@@ -344,6 +415,12 @@ export default function CitizenReportsPage() {
                 </div>
               </div>
             </div>
+
+            {submitError && (
+              <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                {submitError}
+              </p>
+            )}
 
             <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
               <button

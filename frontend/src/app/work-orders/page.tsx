@@ -12,22 +12,42 @@ import {
   ShieldAlert,
   ArrowRight,
 } from "lucide-react";
-import { MaintenanceTask, fetchTasks, createTask } from "@/lib/api";
+import { DrainAsset, MaintenanceTask, fetchAssets, fetchTasks, createTask } from "@/lib/api";
 
 export default function WorkOrdersOperationsPage() {
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
+  const [assets, setAssets] = useState<DrainAsset[]>([]);
+  const [selectedDrainId, setSelectedDrainId] = useState(1);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskCrew, setNewTaskCrew] = useState("South Zone Rapid Response Unit");
   const [newTaskPriority, setNewTaskPriority] = useState<"critical" | "high" | "moderate">("high");
   const [newTaskDueHours, setNewTaskDueHours] = useState(6);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      const data = await fetchTasks();
-      setTasks(data);
-      setLoading(false);
+      try {
+        const [taskData, assetData] = await Promise.all([fetchTasks(), fetchAssets()]);
+        setTasks(taskData);
+        setAssets(assetData);
+        const requestedAssetId = Number(new URLSearchParams(window.location.search).get("asset_id"));
+        const requestedAsset = assetData.find((asset) => asset.id === requestedAssetId);
+        if (requestedAsset) {
+          setSelectedDrainId(requestedAsset.id);
+          setNewTaskTitle(`Inspect and clear ${requestedAsset.name}`);
+          setShowCreateModal(true);
+        } else if (assetData[0]) {
+          setSelectedDrainId(assetData[0].id);
+        }
+      } catch (err) {
+        console.error("Failed to load work order data:", err);
+        setCreateError("Could not load assets or work orders. Refresh the page and try again.");
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, []);
@@ -36,9 +56,11 @@ export default function WorkOrdersOperationsPage() {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
+    setCreating(true);
+    setCreateError(null);
     try {
       const created = await createTask({
-        drain_id: 1,
+        drain_id: selectedDrainId,
         title: newTaskTitle,
         crew: newTaskCrew,
         priority: newTaskPriority,
@@ -51,6 +73,9 @@ export default function WorkOrdersOperationsPage() {
       setNewTaskTitle("");
     } catch (err) {
       console.warn("Create task error:", err);
+      setCreateError(err instanceof Error ? err.message : "Could not create the work order. Please retry.");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -73,7 +98,10 @@ export default function WorkOrdersOperationsPage() {
 
         <button
           type="button"
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => {
+            setCreateError(null);
+            setShowCreateModal(true);
+          }}
           className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-500 transition"
         >
           <Plus className="h-3.5 w-3.5" />
@@ -108,6 +136,7 @@ export default function WorkOrdersOperationsPage() {
       </div>
 
       {/* Work Orders List */}
+      {createError && !showCreateModal && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{createError}</p>}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-850">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
@@ -128,7 +157,7 @@ export default function WorkOrdersOperationsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {tasks.map((task) => (
+              {tasks.length > 0 ? tasks.map((task) => (
                 <tr key={task.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   <td className="px-4 py-3.5">
                     <span className="font-semibold text-slate-900 dark:text-white">
@@ -169,7 +198,7 @@ export default function WorkOrdersOperationsPage() {
                     {task.notes}
                   </td>
                 </tr>
-              ))}
+              )) : <tr><td colSpan={6} className="px-4 py-10 text-center text-xs text-slate-500">{loading ? "Loading work orders…" : "No work orders are available."}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -190,16 +219,31 @@ export default function WorkOrdersOperationsPage() {
                 type="button"
                 onClick={() => setShowCreateModal(false)}
                 className="text-slate-400 hover:text-slate-600"
+                aria-label="Close work order form"
               >
                 ✕
               </button>
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+              <label htmlFor="task-asset" className="text-xs font-medium text-slate-700 dark:text-slate-300">Drain asset</label>
+              <select
+                id="task-asset"
+                required
+                value={selectedDrainId}
+                onChange={(e) => setSelectedDrainId(Number(e.target.value))}
+                className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800 outline-none focus:border-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              >
+                {assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.ward}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="task-title" className="text-xs font-medium text-slate-700 dark:text-slate-300">
                 Work Order Description
               </label>
               <input
+                id="task-title"
                 type="text"
                 required
                 placeholder="e.g. Deploy mechanical excavator to clear inlet screen"
@@ -215,6 +259,7 @@ export default function WorkOrdersOperationsPage() {
                   Priority
                 </label>
                 <select
+                  aria-label="Work order priority"
                   value={newTaskPriority}
                   onChange={(e) => setNewTaskPriority(e.target.value as any)}
                   className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 p-2 font-medium text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
@@ -230,6 +275,7 @@ export default function WorkOrdersOperationsPage() {
                   SLA Window
                 </label>
                 <input
+                  aria-label="SLA window in hours"
                   type="number"
                   min={1}
                   max={48}
@@ -241,10 +287,11 @@ export default function WorkOrdersOperationsPage() {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+              <label htmlFor="task-crew" className="text-xs font-medium text-slate-700 dark:text-slate-300">
                 Assigned Unit
               </label>
               <select
+                id="task-crew"
                 value={newTaskCrew}
                 onChange={(e) => setNewTaskCrew(e.target.value)}
                 className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-medium text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
@@ -256,19 +303,25 @@ export default function WorkOrdersOperationsPage() {
               </select>
             </div>
 
+            {createError && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{createError}</p>}
+
             <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setCreateError(null);
+                }}
                 className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-500 transition"
+                disabled={creating || assets.length === 0}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Issue Order
+                {creating ? "Creating…" : "Issue Order"}
               </button>
             </div>
           </form>

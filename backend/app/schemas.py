@@ -43,6 +43,7 @@ class IncidentReportBase(BaseModel):
     reporter_type: str = "citizen"
     status: str = "new"
     photo_url: str = ""
+    photo_file_id: int | None = None
 
 
 class IncidentReportCreate(IncidentReportBase):
@@ -133,3 +134,4 @@ class InspectionUpdate(BaseModel):
     status: Literal["monitor", "inspection", "priority", "cleared"]
     condition_score: float | None = None
     priority: str | None = None
+    inspection_file_id: int | None = None

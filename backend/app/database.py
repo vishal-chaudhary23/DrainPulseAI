@@ -67,9 +67,9 @@ def ensure_schema_compatibility() -> None:
     if not tables:
         return
 
-    from app.models import DrainAsset, IncidentReport, MaintenanceTask, RainfallScenario, User
+    from app.models import DrainAsset, IncidentReport, MaintenanceTask, RainfallScenario, StoredFile, User
 
-    models = [User, DrainAsset, IncidentReport, MaintenanceTask, RainfallScenario]
+    models = [User, DrainAsset, IncidentReport, MaintenanceTask, RainfallScenario, StoredFile]
 
     for model in models:
         table_name = model.__tablename__

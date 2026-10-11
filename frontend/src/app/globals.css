@@ -18,6 +18,8 @@
   --card-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.06);
   --elevated-shadow: 0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.04);
   --row-divider: rgba(148, 163, 184, 0.35);
+  --radius-control: 0.625rem;
+  --radius-card: 0.875rem;
 }
 
 .dark {
@@ -51,6 +53,35 @@ html, body {
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+button,
+a,
+select,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(button, a, select, input):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.dashboard-content {
+  width: 100%;
+  max-width: 1760px;
+  margin-inline: auto;
+}
+
+.dashboard-panel,
+.kpi-card,
+.map-ctrl-dock,
+.telemetry-hud {
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
 }
 
 /* ─── MapLibre Controls Engineering Aesthetics ─── */
@@ -112,7 +143,7 @@ html, body {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.97);
   box-shadow: var(--card-shadow);
   overflow: hidden;
@@ -127,8 +158,8 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -478,6 +509,42 @@ html, body {
   );
   border: 1px solid rgba(220, 38, 38, 0.5);
   border-radius: 2px;
+}
+
+@media (max-width: 640px) {
+  .map-toolbar {
+    max-width: calc(100% - 58px);
+  }
+
+  .map-search input {
+    width: 112px;
+  }
+
+  .map-ctrl-dock {
+    display: grid;
+    grid-template-columns: repeat(3, 34px);
+  }
+
+  .map-ctrl-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .map-ctrl-divider {
+    display: none;
+  }
+
+  .map-layer-panel {
+    width: min(14rem, calc(100vw - 72px));
+  }
+
+  .map-telemetry {
+    display: none;
+  }
+
+  .map-selected-panel {
+    max-width: none;
+  }
 }
 
 /* ─── Reduced motion ─── */
